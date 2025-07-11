@@ -1,0 +1,59 @@
+program: main.py
+method: grid
+name: chess
+
+metric: {name: eval_loss, goal: minimize}
+
+command:
+  - ${env}
+  - python
+  - main.py
+  - -cn
+  - chess
+  - wandb_mode=online
+  - wandb_tag=chess_fit
+  - wandb_project=supercollapse
+  - ${args_no_hyphens}
+
+parameters: 
+  "seed":
+    values: [0, 1, 2, 3, 4] # 5 seeds is useful for accurating fitting L0, necessary for the best collapse
+
+  "model.N":
+    value: 3
+
+  "model.D":
+    values: [640, 768, 896, 1024, 1152, 1280, 1536, 1792, 2048]
+
+  "opt.b1":
+    value: 0.9
+
+  "opt.b2":
+    value: 0.95
+
+  "opt.lr":
+    value: 0.01
+
+  "opt.B":
+    value: 512
+  
+  "opt.schedule":
+    value: const
+
+  "model.embed_init_std":
+    value: 0.1
+
+  "opt.embed_lr_mult":
+    value: 10
+
+  "opt.readout_lr_mult":
+    value: 1
+
+  "opt.name":
+    value: adam
+
+  "opt.warmup_tokens":
+    value: 10000000             # 10 M
+
+  "T":
+    value: 25000000000           # 25 B

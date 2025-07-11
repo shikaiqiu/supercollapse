@@ -1,0 +1,30 @@
+defaults:
+    - default
+    - _self_
+
+num_evals: 1000
+B: 512
+T: 1_000_000_000
+T_eval: 2_048_000
+ds_path: cifar5m
+wandb_project: picodo
+wandb_tag: cifar5m
+wandb_mode: online
+
+model:
+  D: 128
+  mlp_expansion: 1
+  L: 1024
+  N: 3
+  dtype: null
+  V: 256
+
+opt:
+  name: adam
+  B: 64
+  lr: 0.4
+  b1: 0.9
+  b2: 0.95
+  warmup_tokens: 10_000_000
+  mup: true
+  schedule: linear

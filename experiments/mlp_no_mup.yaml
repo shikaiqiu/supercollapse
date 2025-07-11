@@ -1,0 +1,60 @@
+program: main.py
+method: grid
+name: mlp
+
+metric: {name: eval_loss, goal: minimize}
+
+command:
+  - ${env}
+  - python
+  - main.py
+  - -cn
+  - mlp
+  - wandb_mode=online
+  - wandb_tag=mlp_no_mup
+  - wandb_project=supercollapse
+  - ${args_no_hyphens}
+
+parameters:     
+  
+  "seed":
+    value: 0
+
+  "model.D":
+    values: [384, 512, 645, 812, 1024, 1290, 1625, 2048]
+
+  "model.N":
+    value: 5
+
+  "model.match_mup_at_D":
+    value: 384
+
+  "opt.lr":
+    value: 0.001
+
+  "opt.B":
+    values: [4096]
+  
+  "opt.readout_lr_mult":
+    value: 1
+
+  "opt.schedule":
+    value: linear
+
+  "opt.b1":
+    value: 0.9
+
+  "opt.b2":
+    value: 0.95
+
+  "opt.name":
+    value: adam
+
+  "opt.warmup_tokens":
+    value: 0
+
+  "scale":
+    value: 1346251.612836
+  
+  "exponent":
+    value: 2.040882

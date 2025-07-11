@@ -1,0 +1,47 @@
+defaults:
+  - _self_
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
+
+token_per_param: null
+scale: null
+exponent: null
+T: null  # number of training tokens
+T_eval: null  # number of validation tokens
+num_evals: 100
+ds_path: null
+wandb_project: test
+wandb_tag: test
+wandb_mode: online
+arch: transformer
+shuffle: false
+seed: 0
+
+model: # GPT2-small (124M params)
+  base_D: 128  # model/embed dim  = qkv dim
+  D: 768  # model/embed dim  = qkv dim
+  match_mup_at_D: null
+  mlp_expansion: 4
+  dh: 64  # head dim
+  L: 768  # sequence length
+  N: 3  # number of transformer block layers
+  V: 50257  # vocab size
+  embed_init_std: 0.1
+  init_std_mult: 1
+  fsdp_enabled: false
+  dtype: null
+  scale_by_depth: true
+opt:
+  B: 512  # batch size for both training and validation
+  B_max: 16384 # max micro batch size to determine when to use gradient accumulation
+  lr: 0.4
+  embed_lr_mult: 1
+  readout_lr_mult: 0.1
+  warmup_tokens: 0
+  schedule: const
+  decay_frac: 1.
+  b1: 0.9
+  b2: 0.95
+  eps: 1e-20
+  weight_decay: 0.
+  mup: true

@@ -1,0 +1,68 @@
+program: main.py
+method: grid
+name: cifar5m
+
+metric: {name: eval_loss, goal: minimize}
+
+command:
+  - ${env}
+  - python
+  - main.py
+  - -cn
+  - cifar5m
+  - wandb_mode=online
+  - wandb_tag=c5m_fit
+  - wandb_project=supercollapse
+  - ${args_no_hyphens}
+
+parameters:    
+  "seed":
+    values: [0, 1, 2, 3, 4] # 5 seeds is useful for accurating fitting L0, necessary for the best collapse
+
+  "model.N":
+    value: 3
+  
+  "model.L":
+    value: 1024
+
+  "model.D":
+    values: [768, 896, 1024, 1152, 1280, 1536, 1792, 2048]
+  
+  "opt.mup":
+    value: true
+
+  "opt.b1":
+    value: 0.9
+
+  "opt.b2":
+    value: 0.95
+
+  "opt.lr":
+    value: 0.01
+
+  "opt.B":
+    value: 64
+  
+  "opt.schedule":
+    value: linear
+  
+  "opt.decay_frac":
+    value: 1
+  
+  "model.embed_init_std":
+    value: 0.1
+
+  "opt.embed_lr_mult":
+    value: 10
+
+  "opt.readout_lr_mult":
+    value: 1
+
+  "opt.name":
+    value: adam
+
+  "opt.warmup_tokens":
+    value: 50000000             
+
+  "T":
+    value: 50000000000           # 50 B

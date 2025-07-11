@@ -1,0 +1,53 @@
+program: main.py
+method: grid
+name: mlp
+
+metric: {name: eval_loss, goal: minimize}
+
+command:
+  - ${env}
+  - python
+  - main.py
+  - -cn
+  - mlp
+  - wandb_mode=online
+  - wandb_tag=mlp_schedules
+  - wandb_project=supercollapse
+  - ${args_no_hyphens}
+
+parameters:     
+  "model.N":
+    value: 5
+
+  "model.D":
+    values: [1024]
+  
+  "opt.b1":
+    value: 0.9
+
+  "opt.b2":
+    value: 0.95
+
+  "opt.lr":
+    value: 0.001
+
+  "opt.B":
+    values: [4096]
+  
+  "opt.readout_lr_mult":
+    value: 1
+  
+  "opt.schedule":
+    values: [const, linear, cosine, multicosine]
+
+  "opt.decay_frac":
+    values: [1.0, 0.2]
+
+  "opt.name":
+    value: adam
+
+  "opt.warmup_tokens":
+    value: 0
+
+  "T":
+    value: 1000000000           # 1 B
