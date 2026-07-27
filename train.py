@@ -20,6 +20,7 @@ from optax._src import base
 from optax import tree_utils as otu
 from flax.nnx.training.optimizer import _opt_state_variables_to_state
 from utils import eval_step_fn
+import hessian as hess
 
 def scale_by_sqrt_adam_preconditioner(b2: float = 0.95, eps: float = 1e-8):
   def init_fn(_):
@@ -209,6 +210,50 @@ def train_and_evaluate(cfg: DictConfig):
   
   eval_step = nnx.jit(partial(eval_step_fn, sqrt_P_inv=scale_by_sqrt_preconditioner_fn, loss_and_grad_fn=loss_and_grad_fn))
 
+  # ---- curvature / gradient-noise diagnostics (cfg.hessian) ----
+  hessian_enabled = cfg.hessian.enabled
+  y_eval = get_in_out(ds_valid[0])[1] if cfg.ds_path == 'fourier' else None
+  if hessian_enabled:
+    assert cfg.ds_path == 'fourier', "hessian diagnostics assume the MSE (fourier) task"
+    x_h = get_in_out(ds_valid[0])[0]
+    Bh = x_h.shape[0]
+
+    def _logits_fn(p):
+      return nnx.merge(graphdef, p)(x_h)
+
+    def sym_ggn_vp(p, v, opt_state):
+      # H_hat v = P^{-1/2} (J^T J / B) P^{-1/2} v on the fixed batch x_h
+      pv = scale_by_sqrt_preconditioner_fn(v, opt_state)
+      _, jv = jax.jvp(_logits_fn, (p,), (pv,))
+      _, vjp_fn = jax.vjp(_logits_fn, p)
+      gv, = vjp_fn(jv / Bh)
+      return scale_by_sqrt_preconditioner_fn(gv, opt_state)
+
+    with mesh:
+      ds_noise = jnp.stack([jax.device_put(next(get_batch_test), data_sharding)
+                            for _ in range(cfg.hessian.noise_batches)])
+    noise_probe = nnx.jit(partial(hess.noise_probe_fn,
+                                  sqrt_P_inv=scale_by_sqrt_preconditioner_fn,
+                                  loss_and_grad_fn=loss_and_grad_fn))
+    power_iter = partial(hess.power_iter_topk, vp_fn=sym_ggn_vp,
+                         k=cfg.hessian.k, max_iter=cfg.hessian.max_iter,
+                         tol=float(cfg.hessian.tol))
+    hutch = partial(hess.hutchinson_trace, vp_fn=sym_ggn_vp,
+                    probes=cfg.hessian.hutch_probes)
+
+    @jax.jit
+    def displacement_overlaps(params, params0, vecs, opt_state):
+      ones = jax.tree.map(jnp.ones_like, params)
+      diag = scale_by_sqrt_preconditioner_fn(ones, opt_state)  # P^{-1/2} diagonal
+      disp = jax.tree.map(lambda w, w0, d: (w - w0) / (d + 1e-30),
+                          params, params0, diag)
+      disp = hess.tree_normalize(disp)
+      return hess.stacked_product(vecs, disp) ** 2
+
+    @jax.jit
+    def dir_curvature(params, dir_vec, opt_state):
+      return utils.tree_product(dir_vec, sym_ggn_vp(params, dir_vec, opt_state))
+
   # start wandb
   if cfg.wandb_project is not None:
     config = utils.flatten_dict(cfg)
@@ -225,10 +270,26 @@ def train_and_evaluate(cfg: DictConfig):
   pbar = tqdm(range(num_train_steps))
   
   eval_steps = set(
-      [int(i) for i in jnp.linspace(0, num_train_steps-1, cfg.num_evals//2)] + 
+      [int(i) for i in jnp.linspace(0, num_train_steps-1, cfg.num_evals//2)] +
       [int(i) for i in jnp.geomspace(1, num_train_steps-1, cfg.num_evals//2)]
   )
   eval_steps.add(0)
+
+  hessian_eval_steps = set()
+  if hessian_enabled:
+    hessian_eval_steps = hess.hessian_eval_schedule(
+        num_train_steps, cfg.opt.schedule, cfg.opt.decay_frac,
+        cfg.hessian.n_pre, cfg.hessian.n_post)
+    eval_steps |= hessian_eval_steps
+    print(f"hessian evals: {len(hessian_eval_steps)} steps")
+    hkey = jax.random.PRNGKey(1234)
+    _, params_init = nnx.split(model, nnx.Param)
+    params0 = jax.tree.map(jnp.copy, params_init)
+    hess_vecs = hess.stacked_zeros(params_init, cfg.hessian.k)
+    hkey, dkey = jax.random.split(hkey)
+    hess_dir = hess.tree_normalize(
+        hess.get_slice(hess.stacked_random(params_init, dkey, 1), 0))
+    del params_init
 
   with mesh:
     for step in pbar:
@@ -254,6 +315,29 @@ def train_and_evaluate(cfg: DictConfig):
         prev_features = features
         prev_logits = logits
         pending_eval_metrics |= {'step': step, 'tokens': tokens_seen, 'compute': compute_spent, 'tau': tau, 'lr': lr_t}
+        if y_eval is not None:
+          pending_eval_metrics |= {'fy_mean': jnp.mean(logits * y_eval),
+                                   'f2_mean': jnp.mean(logits ** 2),
+                                   'y2_mean': jnp.mean(y_eval ** 2)}
+
+        if hessian_enabled and step in hessian_eval_steps:
+          hkey, pk, tk = jax.random.split(hkey, 3)
+          eigvals, hess_vecs, hiters = power_iter(params, opt_state, hess_vecs, pk)
+          htrace = hutch(params, opt_state, tk)
+          probe, umean = noise_probe(params, ds_noise, opt_state, hess_vecs, hess_dir)
+          hg = dir_curvature(params, hess_dir, opt_state)
+          ovl = displacement_overlaps(params, params0, hess_vecs, opt_state)
+          new_dir = hess.tree_normalize(umean)
+          hm = {'htrace': htrace, 'hg': hg,
+                'sig2_g': probe['sigma2_dir'], 'dproj_g': probe['dproj'],
+                'dirdot': utils.tree_product(hess_dir, new_dir),
+                'Buvar_h': probe['Buvar_h'], 'umean2_h': probe['umean2_h'],
+                'loss_h': probe['loss_h'], 'hiter_max': jnp.max(hiters)}
+          for i in range(cfg.hessian.k):
+            hm |= {f'eig{i}': eigvals[i], f'sig2_{i}': probe['sigma2'][i],
+                   f'vproj{i}': probe['vproj'][i], f'ovl{i}': ovl[i]}
+          pending_eval_metrics |= hm
+          hess_dir = new_dir
 
       # training step
       micro_batches = [jax.device_put(next(get_batch_train), data_sharding)

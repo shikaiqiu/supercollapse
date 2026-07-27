@@ -45,3 +45,13 @@ opt:
   eps: 1e-20
   weight_decay: 0.
   mup: true
+
+hessian:
+  enabled: false
+  k: 10             # number of top eigenpairs of the preconditioned GGN
+  max_iter: 150     # power-iteration cap per eigenvector
+  tol: 1.0e-4       # relative eigenvalue tolerance (warm starts converge fast)
+  n_pre: 50         # curvature evals before decay starts (log + linear spaced)
+  n_post: 50        # curvature evals across the decay window (linear spaced)
+  noise_batches: 96 # held-out batches for the gradient-noise probe
+  hutch_probes: 8   # Hutchinson probes for the trace
